@@ -39,7 +39,7 @@ class AlertSystem:
             "wallet": wallet,
             "market_title": market.get("question", "Unknown"),
             "market_slug": market.get("slug", "") or market.get("event_slug", ""),
-            "condition_id": market.get("condition_id", ""),
+            "condition_id": market.get("conditionId", ""),  # Fixed: API uses camelCase
             "category": category,
             "trade": {
                 "size": trade.get("size"),

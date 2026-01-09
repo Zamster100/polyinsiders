@@ -67,7 +67,7 @@ class InsiderTracker:
 
     async def analyze_market(self, api: PolymarketAPI, market: dict) -> dict:
         """Analyze a single market for suspicious activity"""
-        condition_id = market.get("condition_id")
+        condition_id = market.get("conditionId")  # Fixed: API uses camelCase
         if not condition_id:
             return {"alerts": 0, "trades": 0}
 
