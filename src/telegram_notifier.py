@@ -42,36 +42,61 @@ class TelegramNotifier:
 
             # Format wallet address
             wallet = alert["wallet"]
-            wallet_short = f"{wallet[:8]}...{wallet[-6:]}"
+            wallet_short = f"{wallet[:6]}...{wallet[-4:]}"
+
+            # Get market category
+            category = alert.get("category", "Unknown")
+
+            # Format timestamp
+            timestamp = alert.get("timestamp", "")
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp)
+                    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+                except:
+                    time_str = timestamp
+            else:
+                time_str = "Unknown"
 
             # Format message with HTML
             message = f"""<b>{emoji} {severity}: Suspicious Activity Detected</b>
 
-<b>📊 Score:</b> {score:.1f}/10
-<b>💰 Wallet:</b> <code>{wallet_short}</code>
-<b>🎯 Market:</b> {alert['market_title']}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>📊 SUSPICION SCORE: {score:.1f}/10</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-<b>📈 Trade Details:</b>
-• Side: {alert['trade']['side']}
-• Size: {alert['trade']['size']}
-• Price: ${alert['trade']['price']}
-• Value: ${alert['trade']['value_usd']:.2f}
+<b>🎯 MARKET INFO</b>
+• <b>Title:</b> {alert['market_title'][:100]}
+• <b>Category:</b> {category}
+• <b>Current Price:</b> ${alert.get('current_price', 'N/A')}
 
-<b>👤 Wallet Statistics:</b>
-• Age: {alert['wallet_stats']['age_days']:.1f} days
-• Total Trades: {alert['wallet_stats']['total_trades']}
-• Unique Markets: {alert['wallet_stats']['unique_markets']}
-• Avg Bet Size: ${alert['wallet_stats']['avg_bet_size']:.2f}
+<b>📈 TRADE DETAILS</b>
+• <b>Side:</b> {alert['trade']['side']}
+• <b>Size:</b> {alert['trade']['size']}
+• <b>Price:</b> ${alert['trade']['price']}
+• <b>Value:</b> <b>${alert['trade']['value_usd']:,.2f}</b>
+• <b>Time:</b> {time_str}
 
-<b>🚩 Red Flags:</b>
+<b>💰 WALLET INFO</b>
+• <b>Address:</b> <code>{wallet}</code>
+• <b>Age:</b> {alert['wallet_stats']['age_days']:.1f} days old
+• <b>Total Trades:</b> {alert['wallet_stats']['total_trades']}
+• <b>Unique Markets:</b> {alert['wallet_stats']['unique_markets']}
+• <b>Avg Bet:</b> ${alert['wallet_stats']['avg_bet_size']:,.2f}
+
+<b>🚩 RED FLAGS</b>
 """
-            # Add top 3 red flags
-            for i, reason in enumerate(alert["reasons"][:3], 1):
+            # Add all red flags (not just top 3)
+            for i, reason in enumerate(alert["reasons"], 1):
                 message += f"{i}. {reason}\n"
 
-            # Add link
+            # Add links
             market_url = f"https://polymarket.com/event/{alert['market_slug']}"
-            message += f'\n<a href="{market_url}">View on Polymarket</a>'
+            polygonscan_url = f"https://polygonscan.com/address/{wallet}"
+
+            message += f'\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+            message += f'🔗 <a href="{market_url}">View Market</a> | '
+            message += f'🔍 <a href="{polygonscan_url}">View Wallet on PolygonScan</a>'
 
             # Send message via Telegram API
             async with aiohttp.ClientSession() as session:

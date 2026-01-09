@@ -18,6 +18,16 @@ TRACKED_TAG_IDS = [
     2,  # Politics
 ]
 
+# Category mapping
+CATEGORY_MAP = {
+    2: "Politics",
+    3: "Crypto",
+    4: "Sports",
+    5: "Pop Culture",
+    6: "Business",
+    7: "Science",
+}
+
 # Insider detection thresholds
 FRESH_WALLET_DAYS = int(os.getenv("FRESH_WALLET_DAYS", "30"))
 MIN_BET_SIZE = int(os.getenv("MIN_BET_SIZE", "1000"))

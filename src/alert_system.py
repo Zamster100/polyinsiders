@@ -31,12 +31,16 @@ class AlertSystem:
         wallet_stats: dict,
     ) -> dict:
         """Create a new alert"""
+        # Determine category (default to Politics for now)
+        category = "Politics"  # Since we're tracking tag_id 2
+
         alert = {
             "timestamp": datetime.now().isoformat(),
             "wallet": wallet,
             "market_title": market.get("question", "Unknown"),
-            "market_slug": market.get("slug", ""),
+            "market_slug": market.get("slug", "") or market.get("event_slug", ""),
             "condition_id": market.get("condition_id", ""),
+            "category": category,
             "trade": {
                 "size": trade.get("size"),
                 "price": trade.get("price"),
