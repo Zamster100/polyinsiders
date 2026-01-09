@@ -7,6 +7,7 @@ Monitors suspicious trading patterns to detect potential insider activity
 import argparse
 import asyncio
 import logging
+import os
 
 from rich.console import Console
 from rich.panel import Panel
@@ -15,6 +16,9 @@ from src.logger import logger
 from src.tracker import InsiderTracker
 
 console = Console()
+
+# Check if running on Replit
+IS_REPLIT = os.environ.get('REPL_SLUG') is not None
 
 
 async def main_async(args):
@@ -56,6 +60,15 @@ async def main_async(args):
 
 
 def main():
+    # Start keep-alive server if running on Replit
+    if IS_REPLIT:
+        try:
+            from keep_alive import keep_alive
+            keep_alive()
+            logger.info("Keep-alive server started for Replit")
+        except Exception as e:
+            logger.warning(f"Could not start keep-alive server: {e}")
+
     parser = argparse.ArgumentParser(
         description="Polymarket Insider Activity Tracker",
         formatter_class=argparse.RawDescriptionHelpFormatter,
