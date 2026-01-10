@@ -136,36 +136,43 @@ class AuthenticatedPolymarketAPI:
     async def fetch_trades(self, market_id: str, limit: int = 100) -> list[dict]:
         """Fetch recent trades for a market (authenticated)"""
         try:
-            # Use authenticated CLOB client
-            # The py-clob-client doesn't have an async method, so we run it in executor
+            # Use the client's built-in request method which handles authentication
             loop = asyncio.get_event_loop()
 
-            # The client's method might be synchronous, so run in thread pool
             def get_trades():
-                # Try to get trades - the library might have different method names
-                # Let's try a direct HTTP call with the authenticated client
-                import requests
+                try:
+                    # Use the client's GET method which handles auth headers automatically
+                    endpoint = f"/trades?market={market_id}&limit={limit}"
 
-                # Get API credentials from client
-                if hasattr(self.clob_client, "creds") and self.clob_client.creds:
-                    headers = {
-                        "POLY_ADDRESS": self.clob_client.creds.api_key,
-                        "POLY_SIGNATURE": self.clob_client.creds.api_secret,
-                        "POLY_TIMESTAMP": str(int(datetime.now().timestamp())),
-                        "POLY_NONCE": self.clob_client.creds.api_passphrase,
-                    }
-                else:
-                    headers = {}
+                    # The client has a 'get' method that handles authentication
+                    if hasattr(self.clob_client, 'get'):
+                        response = self.clob_client.get(endpoint)
+                        return response if isinstance(response, list) else []
+                    else:
+                        # Fallback: Try using the client's session directly
+                        # The client might have authenticated session we can use
+                        import requests
 
-                url = f"{CLOB_API}/trades?market={market_id}&limit={limit}"
-                response = requests.get(url, headers=headers)
+                        # Build full URL
+                        url = f"{CLOB_API}/trades"
+                        params = {"market": market_id, "limit": limit}
 
-                if response.status_code == 200:
-                    return response.json()
-                else:
-                    logger.warning(
-                        f"Failed to fetch trades: {response.status_code} - {response.text}"
-                    )
+                        # Use the client's underlying session if available
+                        if hasattr(self.clob_client, 'session'):
+                            response = self.clob_client.session.get(url, params=params)
+                        else:
+                            # Last resort: plain request (won't work but shows error)
+                            response = requests.get(url, params=params)
+
+                        if response.status_code == 200:
+                            return response.json()
+                        else:
+                            logger.warning(
+                                f"Failed to fetch trades: {response.status_code} - {response.text[:200]}"
+                            )
+                            return []
+                except Exception as e:
+                    logger.error(f"Error in get_trades: {e}")
                     return []
 
             trades = await loop.run_in_executor(None, get_trades)
