@@ -17,7 +17,7 @@ from src.config import (
 )
 from src.database import Database
 from src.logger import console, logger
-from src.polymarket_api import PolymarketAPI
+from src.polymarket_api_authenticated import AuthenticatedPolymarketAPI
 from src.wallet_tracker import WalletTracker
 
 
@@ -39,7 +39,7 @@ class InsiderTracker:
         """Initialize database"""
         await self.db.init_db()
 
-    async def get_all_markets(self, api: PolymarketAPI) -> list[dict]:
+    async def get_all_markets(self, api: AuthenticatedPolymarketAPI) -> list[dict]:
         """Fetch all markets we're tracking concurrently"""
 
         async def fetch_tag(tag_id):
@@ -65,7 +65,7 @@ class InsiderTracker:
         )
         return all_markets
 
-    async def analyze_market(self, api: PolymarketAPI, market: dict) -> dict:
+    async def analyze_market(self, api: AuthenticatedPolymarketAPI, market: dict) -> dict:
         """Analyze a single market for suspicious activity"""
         condition_id = market.get("conditionId")  # Fixed: API uses camelCase
         if not condition_id:
@@ -140,7 +140,7 @@ class InsiderTracker:
             "errors": 0,
         }
 
-        async with PolymarketAPI() as api:
+        async with AuthenticatedPolymarketAPI() as api:
             markets = await self.get_all_markets(api)
 
             if not markets:

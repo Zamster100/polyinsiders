@@ -50,6 +50,12 @@ CACHE_TTL = 300
 # Database
 DATABASE_PATH = "polymarket_tracker.db"
 
+# Polymarket authentication
+POLYMARKET_PRIVATE_KEY = os.getenv("POLYMARKET_PRIVATE_KEY", "")
+POLYMARKET_FUNDER = os.getenv("POLYMARKET_FUNDER", "")
+POLYMARKET_SIGNATURE_TYPE = int(os.getenv("POLYMARKET_SIGNATURE_TYPE", "2"))
+POLYMARKET_CHAIN_ID = int(os.getenv("POLYMARKET_CHAIN_ID", "137"))  # Polygon mainnet
+
 # Slack notifications (deprecated - use Telegram instead)
 SLACK_ENABLED = os.getenv("SLACK_ENABLED", "false").lower() == "true"
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
