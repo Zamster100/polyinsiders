@@ -7,7 +7,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 from rich.table import Table
 
 from src.alert_system import AlertSystem
-from src.anomaly_detector import AnomalyDetector
+from src.orderbook_anomaly_detector import OrderbookAnomalyDetector
 from src.config import (
     CONCURRENT_BATCH_SIZE,
     DATABASE_PATH,
@@ -17,7 +17,7 @@ from src.config import (
 )
 from src.database import Database
 from src.logger import console, logger
-from src.polymarket_api_authenticated import AuthenticatedPolymarketAPI
+from src.orderbook_api import OrderbookAPI
 from src.wallet_tracker import WalletTracker
 
 
@@ -25,12 +25,12 @@ class InsiderTracker:
     def __init__(self):
         self.db = Database(DATABASE_PATH)
         self.wallet_tracker = WalletTracker(self.db)
-        self.anomaly_detector = AnomalyDetector()
+        self.orderbook_detector = OrderbookAnomalyDetector()
         self.alert_system = AlertSystem(self.db)
-        self.processed_trades = set()
+        self.processed_markets = set()  # Track markets we've already alerted on
         self.scan_stats = {
             "markets_scanned": 0,
-            "trades_analyzed": 0,
+            "orderbooks_analyzed": 0,
             "alerts_triggered": 0,
             "errors": 0,
         }
@@ -39,7 +39,7 @@ class InsiderTracker:
         """Initialize database"""
         await self.db.init_db()
 
-    async def get_all_markets(self, api: AuthenticatedPolymarketAPI) -> list[dict]:
+    async def get_all_markets(self, api: OrderbookAPI) -> list[dict]:
         """Fetch all markets we're tracking concurrently"""
 
         async def fetch_tag(tag_id):
@@ -65,69 +65,56 @@ class InsiderTracker:
         )
         return all_markets
 
-    async def analyze_market(self, api: AuthenticatedPolymarketAPI, market: dict) -> dict:
-        """Analyze a single market for suspicious activity"""
-        condition_id = market.get("conditionId")  # Fixed: API uses camelCase
+    async def analyze_market(self, api: OrderbookAPI, market: dict) -> dict:
+        """Analyze a single market's orderbooks for suspicious activity"""
+        condition_id = market.get("conditionId")
         if not condition_id:
-            return {"alerts": 0, "trades": 0}
+            return {"alerts": 0, "orderbooks": 0}
 
         alerts_count = 0
-        trades_count = 0
+        orderbooks_count = 0
 
         try:
-            trades = await api.fetch_trades(condition_id, limit=100)
+            # Fetch orderbooks for all tokens in this market
+            orderbooks = await api.fetch_market_orderbooks(market)
 
-            if not trades:
-                return {"alerts": 0, "trades": 0}
+            if not orderbooks:
+                return {"alerts": 0, "orderbooks": 0}
 
-            trades_count = len(trades)
-            market_stats = self.anomaly_detector.calculate_market_stats(trades)
+            orderbooks_count = len(orderbooks)
 
-            for trade in trades:
-                trade_id = trade.get("id")
-                if trade_id in self.processed_trades:
+            # Analyze each orderbook
+            for ob_data in orderbooks:
+                orderbook = ob_data.get("orderbook", {})
+                token_id = ob_data.get("token_id", "")
+
+                if not orderbook.get("bids") and not orderbook.get("asks"):
                     continue
 
-                self.processed_trades.add(trade_id)
-
-                wallet = trade.get("maker")
-                if not wallet:
-                    continue
-
-                await self.wallet_tracker.register_trade(
-                    wallet,
-                    {
-                        **trade,
-                        "market": condition_id,
-                        "market_title": market.get("question", ""),
-                    },
+                # Analyze orderbook for suspicious patterns
+                score, reasons, details = self.orderbook_detector.analyze_orderbook(
+                    orderbook, market
                 )
 
-                wallet_stats = await self.wallet_tracker.get_wallet_stats(wallet)
-                score, reasons = self.anomaly_detector.score_wallet_suspiciousness(
-                    wallet_stats, trade, market_stats
-                )
-
+                # Create alert if score is high enough
                 if score >= SUSPICIOUS_SCORE_THRESHOLD:
-                    alert = await self.alert_system.create_alert(
-                        wallet, market, trade, score, reasons, wallet_stats
-                    )
-                    self.alert_system.print_alert(alert)
-                    alerts_count += 1
+                    # Create unique key for this market alert to avoid duplicates
+                    alert_key = f"{condition_id}_{token_id}"
 
-            coordinated = self.anomaly_detector.detect_coordinated_activity(trades)
-            if coordinated:
-                for group in coordinated:
-                    logger.warning(
-                        f"Coordinated activity in {market.get('question', 'market')[:40]}: "
-                        f"{group['count']} similar trades"
-                    )
+                    if alert_key not in self.processed_markets:
+                        self.processed_markets.add(alert_key)
+
+                        alert = await self.alert_system.create_orderbook_alert(
+                            market, token_id, score, reasons, details
+                        )
+                        self.alert_system.print_alert(alert)
+                        alerts_count += 1
 
         except Exception as e:
             logger.error(f"Error analyzing market {market.get('question', 'unknown')[:40]}: {e}")
             self.scan_stats["errors"] += 1
 
-        return {"alerts": alerts_count, "trades": trades_count}
+        return {"alerts": alerts_count, "orderbooks": orderbooks_count}
 
     async def run_scan(self):
         """Run a single scan of all markets concurrently"""
@@ -135,12 +122,12 @@ class InsiderTracker:
 
         self.scan_stats = {
             "markets_scanned": 0,
-            "trades_analyzed": 0,
+            "orderbooks_analyzed": 0,
             "alerts_triggered": 0,
             "errors": 0,
         }
 
-        async with AuthenticatedPolymarketAPI() as api:
+        async with OrderbookAPI() as api:
             markets = await self.get_all_markets(api)
 
             if not markets:
@@ -170,7 +157,7 @@ class InsiderTracker:
                     for result in results:
                         if isinstance(result, dict):
                             self.scan_stats["markets_scanned"] += 1
-                            self.scan_stats["trades_analyzed"] += result.get("trades", 0)
+                            self.scan_stats["orderbooks_analyzed"] += result.get("orderbooks", 0)
                             self.scan_stats["alerts_triggered"] += result.get("alerts", 0)
 
                     progress.update(task, advance=len(batch))
@@ -189,7 +176,7 @@ class InsiderTracker:
             "Markets Scanned", f"[green]{self.scan_stats['markets_scanned']}[/green]"
         )
         summary_table.add_row(
-            "Trades Analyzed", f"[blue]{self.scan_stats['trades_analyzed']}[/blue]"
+            "Orderbooks Analyzed", f"[blue]{self.scan_stats['orderbooks_analyzed']}[/blue]"
         )
         summary_table.add_row(
             "New Alerts", f"[yellow]{self.scan_stats['alerts_triggered']}[/yellow]"

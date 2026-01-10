@@ -121,6 +121,112 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"Error sending Telegram notification: {e}")
 
+    async def send_orderbook_alert(self, alert: dict):
+        """Send orderbook anomaly alert to Telegram"""
+        if not self.enabled:
+            return
+
+        try:
+            score = alert["suspicion_score"]
+
+            # Emoji based on severity
+            if score >= 9:
+                emoji = "🚨"
+                severity = "CRITICAL"
+            elif score >= 7:
+                emoji = "⚠️"
+                severity = "WARNING"
+            else:
+                emoji = "ℹ️"
+                severity = "INFO"
+
+            # Get market category
+            category = alert.get("category", "Unknown")
+
+            # Format timestamp
+            timestamp = alert.get("timestamp", "")
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp)
+                    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+                except:
+                    time_str = timestamp
+            else:
+                time_str = "Unknown"
+
+            ob_details = alert.get("orderbook_details", {})
+
+            # Format message with HTML
+            message = f"""<b>{emoji} {severity}: Orderbook Anomaly Detected</b>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>📊 SUSPICION SCORE: {score:.1f}/10</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>🎯 MARKET INFO</b>
+• <b>Title:</b> {alert['market_title'][:100]}
+• <b>Category:</b> {category}
+• <b>Time:</b> {time_str}
+
+<b>📚 ORDERBOOK STATS</b>
+• <b>Total Volume:</b> ${ob_details.get('total_volume', 0):,.2f}
+• <b>Bid Volume:</b> ${ob_details.get('total_bid_size', 0):,.2f}
+• <b>Ask Volume:</b> ${ob_details.get('total_ask_size', 0):,.2f}
+"""
+
+            # Add imbalance if present
+            imbalance = ob_details.get('imbalance', 0)
+            if imbalance != 0:
+                direction = "Bullish" if imbalance > 0 else "Bearish"
+                message += f"• <b>Imbalance:</b> {abs(imbalance)*100:.1f}% {direction}\n"
+
+            # Add spread if present
+            spread = ob_details.get('spread', 0)
+            if spread > 0:
+                message += f"• <b>Spread:</b> ${spread:.4f}\n"
+
+            # Add large orders if present
+            large_orders = ob_details.get('large_orders', [])
+            if large_orders:
+                message += "\n<b>🐋 LARGE ORDERS</b>\n"
+                for order in large_orders[:3]:  # Top 3
+                    side, size, price, value = order
+                    message += f"• {side}: {size:,.0f} @ ${price:.2f} = <b>${value:,.2f}</b>\n"
+
+            # Add detection signals
+            message += "\n<b>🚩 DETECTION SIGNALS</b>\n"
+            for i, reason in enumerate(alert["reasons"], 1):
+                message += f"{i}. {reason}\n"
+
+            # Add links
+            market_url = f"https://polymarket.com/event/{alert['market_slug']}"
+
+            message += f'\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+            message += f'🔗 <a href="{market_url}">View Market on Polymarket</a>'
+
+            # Send message via Telegram API
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "chat_id": self.chat_id,
+                    "text": message,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": False,
+                }
+
+                async with session.post(
+                    f"{self.api_url}/sendMessage", json=payload
+                ) as response:
+                    if response.status == 200:
+                        logger.debug("Orderbook alert sent to Telegram")
+                    else:
+                        error_text = await response.text()
+                        logger.error(
+                            f"Failed to send Telegram orderbook alert: {response.status} - {error_text}"
+                        )
+
+        except Exception as e:
+            logger.error(f"Error sending Telegram orderbook notification: {e}")
+
     async def test_connection(self):
         """Test Telegram bot connection"""
         if not self.enabled:
