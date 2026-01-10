@@ -28,9 +28,39 @@ async def test_orderbook_access():
                 print("   ❌ No markets in event")
                 return
 
-            market = markets[0]
+            # Find an ACTIVE market that's accepting orders
+            active_market = None
+            for m in markets:
+                if m.get('active') and not m.get('closed') and m.get('acceptingOrders'):
+                    active_market = m
+                    break
+
+            # If no active market in first event, try next events
+            if not active_market:
+                print("   First event has no active markets, trying more...")
+                gamma_url2 = "https://gamma-api.polymarket.com/events?tagId=2&active=true&closed=false&limit=20"
+                async with session.get(gamma_url2) as resp2:
+                    events2 = await resp2.json()
+                    for event2 in events2:
+                        for m in event2.get('markets', []):
+                            if m.get('active') and not m.get('closed') and m.get('acceptingOrders'):
+                                active_market = m
+                                break
+                        if active_market:
+                            break
+
+            if not active_market:
+                print("   ❌ No active markets found accepting orders")
+                return
+
+            market = active_market
             question = market.get('question', 'Unknown')
             clob_token_ids_str = market.get('clobTokenIds', '[]')
+
+            print(f"   Market status:")
+            print(f"     Active: {market.get('active')}")
+            print(f"     Closed: {market.get('closed')}")
+            print(f"     Accepting Orders: {market.get('acceptingOrders')}")
 
             # Parse the JSON string
             token_ids = json.loads(clob_token_ids_str)
