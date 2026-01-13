@@ -86,9 +86,8 @@ class InsiderTracker:
             orderbooks_count = len(orderbooks)
 
             # Analyze each orderbook
-            for ob_data in orderbooks:
-                orderbook = ob_data.get("orderbook", {})
-                token_id = ob_data.get("token_id", "")
+            for orderbook in orderbooks:
+                token_id = orderbook.get("token_id", "")
 
                 if not orderbook.get("bids") and not orderbook.get("asks"):
                     continue
