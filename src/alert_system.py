@@ -99,7 +99,8 @@ class AlertSystem:
         }
 
         await self.db.save_alert(alert)
-        await self.slack.send_alert(alert)
+        # Skip Slack for orderbook alerts (Slack notifier expects wallet field)
+        # await self.slack.send_alert(alert)
         await self.telegram.send_orderbook_alert(alert)
         logger.info(f"Orderbook alert created: {market.get('question', '')[:40]}... score {score:.1f}/10")
         return alert
