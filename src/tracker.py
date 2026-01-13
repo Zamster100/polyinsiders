@@ -69,17 +69,19 @@ class InsiderTracker:
         """Analyze a single market's orderbooks for suspicious activity"""
         condition_id = market.get("conditionId")
         if not condition_id:
-            return {"alerts": 0, "orderbooks": 0}
+            return {"alerts": 0, "orderbooks": 0, "with_data": 0, "scores": []}
 
         alerts_count = 0
         orderbooks_count = 0
+        orderbooks_with_data = 0
+        scores = []
 
         try:
             # Fetch orderbooks for all tokens in this market
             orderbooks = await api.fetch_market_orderbooks(market)
 
             if not orderbooks:
-                return {"alerts": 0, "orderbooks": 0}
+                return {"alerts": 0, "orderbooks": 0, "with_data": 0, "scores": []}
 
             orderbooks_count = len(orderbooks)
 
@@ -91,10 +93,21 @@ class InsiderTracker:
                 if not orderbook.get("bids") and not orderbook.get("asks"):
                     continue
 
+                orderbooks_with_data += 1
+
                 # Analyze orderbook for suspicious patterns
                 score, reasons, details = self.orderbook_detector.analyze_orderbook(
                     orderbook, market
                 )
+
+                scores.append(score)
+
+                # Log if we got a score > 0 for debugging
+                if score > 0:
+                    logger.debug(
+                        f"Market '{market.get('question', '')[:40]}' - "
+                        f"Score: {score:.1f}/10, Reasons: {len(reasons)}"
+                    )
 
                 # Create alert if score is high enough
                 if score >= SUSPICIOUS_SCORE_THRESHOLD:
@@ -114,10 +127,33 @@ class InsiderTracker:
             logger.error(f"Error analyzing market {market.get('question', 'unknown')[:40]}: {e}")
             self.scan_stats["errors"] += 1
 
-        return {"alerts": alerts_count, "orderbooks": orderbooks_count}
+        return {
+            "alerts": alerts_count,
+            "orderbooks": orderbooks_count,
+            "with_data": orderbooks_with_data,
+            "scores": scores,
+        }
 
     async def run_scan(self):
         """Run a single scan of all markets concurrently"""
+        from src.config import MIN_BET_SIZE, LARGE_BET_MULTIPLIER
+
+        # Display configuration
+        console.print("\n")
+        console.print(
+            Panel.fit(
+                "[bold cyan]📊 Configuration[/bold cyan]\n\n"
+                f"[white]Alert Threshold:[/white] [yellow]{SUSPICIOUS_SCORE_THRESHOLD}/10[/yellow]\n"
+                f"[white]Min Bet Size:[/white] [yellow]${MIN_BET_SIZE}[/yellow]\n"
+                f"[white]Large Order Threshold:[/white] [yellow]>${MIN_BET_SIZE * 5} (5x min)[/yellow]\n"
+                f"[white]Very Large Order:[/white] [yellow]>${MIN_BET_SIZE * 10} (10x min)[/yellow]\n"
+                f"[white]Tracking:[/white] [yellow]{len(TRACKED_TAG_IDS)} categories[/yellow]\n"
+                f"[white]Mode:[/white] [green]Orderbook Monitoring[/green]",
+                border_style="cyan",
+            )
+        )
+        console.print()
+
         logger.info("Starting market scan...")
 
         self.scan_stats = {
@@ -125,6 +161,8 @@ class InsiderTracker:
             "orderbooks_analyzed": 0,
             "alerts_triggered": 0,
             "errors": 0,
+            "orderbooks_with_data": 0,
+            "scores_calculated": 0,
         }
 
         async with OrderbookAPI() as api:
@@ -159,6 +197,8 @@ class InsiderTracker:
                             self.scan_stats["markets_scanned"] += 1
                             self.scan_stats["orderbooks_analyzed"] += result.get("orderbooks", 0)
                             self.scan_stats["alerts_triggered"] += result.get("alerts", 0)
+                            self.scan_stats["orderbooks_with_data"] += result.get("with_data", 0)
+                            self.scan_stats["scores_calculated"] += len(result.get("scores", []))
 
                     progress.update(task, advance=len(batch))
 
@@ -179,6 +219,12 @@ class InsiderTracker:
             "Orderbooks Analyzed", f"[blue]{self.scan_stats['orderbooks_analyzed']}[/blue]"
         )
         summary_table.add_row(
+            "Orderbooks w/ Data", f"[cyan]{self.scan_stats['orderbooks_with_data']}[/cyan]"
+        )
+        summary_table.add_row(
+            "Scores Calculated", f"[magenta]{self.scan_stats['scores_calculated']}[/magenta]"
+        )
+        summary_table.add_row(
             "New Alerts", f"[yellow]{self.scan_stats['alerts_triggered']}[/yellow]"
         )
         summary_table.add_row("Errors Encountered", f"[red]{self.scan_stats['errors']}[/red]")
@@ -194,14 +240,25 @@ class InsiderTracker:
 
     async def run_continuous(self):
         """Run continuous monitoring"""
+        from src.config import MIN_BET_SIZE, LARGE_BET_MULTIPLIER
+
         console.print(
             Panel.fit(
                 "[bold cyan]🤖 Polymarket Insider Activity Tracker[/bold cyan]\n\n"
-                f"[white]Polling Interval:[/white] [yellow]{POLL_INTERVAL}s[/yellow]\n"
-                f"[white]Tracking Categories:[/white] [yellow]{len(TRACKED_TAG_IDS)}[/yellow]\n"
-                f"[white]Alert Threshold:[/white] [yellow]{SUSPICIOUS_SCORE_THRESHOLD}/10[/yellow]\n"
-                f"[white]Concurrent Batch Size:[/white] [yellow]{CONCURRENT_BATCH_SIZE}[/yellow]\n"
-                f"[white]Mode:[/white] [green]ASYNC + OPTIMIZED + SQLite[/green]\n\n"
+                "[bold white]Configuration:[/bold white]\n"
+                f"[white]├─ Polling Interval:[/white] [yellow]{POLL_INTERVAL}s[/yellow]\n"
+                f"[white]├─ Tracking Categories:[/white] [yellow]{len(TRACKED_TAG_IDS)}[/yellow]\n"
+                f"[white]├─ Alert Threshold:[/white] [yellow]{SUSPICIOUS_SCORE_THRESHOLD}/10[/yellow]\n"
+                f"[white]├─ Min Bet Size:[/white] [yellow]${MIN_BET_SIZE}[/yellow]\n"
+                f"[white]├─ Large Bet Multiplier:[/white] [yellow]{LARGE_BET_MULTIPLIER}x[/yellow]\n"
+                f"[white]├─ Concurrent Batch:[/white] [yellow]{CONCURRENT_BATCH_SIZE}[/yellow]\n"
+                f"[white]└─ Mode:[/white] [green]Orderbook Monitoring[/green]\n\n"
+                "[bold white]Detection Signals:[/bold white]\n"
+                f"[white]• Large orders (>{MIN_BET_SIZE * 5})[/white]\n"
+                "[white]• Orderbook imbalance (>20%)[/white]\n"
+                "[white]• Unusual spreads (<$0.01 or >$0.20)[/white]\n"
+                "[white]• Order concentration (>50%)[/white]\n"
+                "[white]• Large orders in illiquid markets[/white]\n\n"
                 "[dim]Press Ctrl+C to stop[/dim]",
                 border_style="cyan",
             )
