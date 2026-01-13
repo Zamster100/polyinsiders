@@ -11,10 +11,16 @@ class AIReviewer:
     def __init__(self):
         self.api_key = os.getenv("ANTHROPIC_API_KEY", "")
         self.enabled = bool(self.api_key)
+        self.client = None
 
         if self.enabled:
-            self.client = anthropic.Anthropic(api_key=self.api_key)
-            logger.info("AI Reviewer enabled")
+            try:
+                self.client = anthropic.Anthropic(api_key=self.api_key)
+                logger.info("AI Reviewer enabled")
+            except Exception as e:
+                logger.error(f"Failed to initialize AI Reviewer: {e}")
+                logger.warning("AI Reviewer disabled - continuing without AI review")
+                self.enabled = False
         else:
             logger.warning("AI Reviewer disabled - set ANTHROPIC_API_KEY to enable")
 
