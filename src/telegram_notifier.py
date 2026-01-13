@@ -261,7 +261,7 @@ class TelegramNotifier:
                     if response.status == 200:
                         data = await response.json()
                         bot_name = data["result"]["username"]
-                        logger.info(f"✅ Telegram bot connected: @{bot_name}")
+                        logger.info(f"Telegram bot connected: @{bot_name}")
                         return True
                     else:
                         logger.error(f"Failed to connect to Telegram: {response.status}")

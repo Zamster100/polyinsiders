@@ -101,7 +101,7 @@ REASONING: [Your 1-2 sentence analysis]"""
                 reasoning = response.split("REASONING:")[1].strip()
 
             logger.info(
-                f"AI Review: {'✅ ALERT' if should_alert else '❌ SKIP'} "
+                f"AI Review: {'ALERT' if should_alert else 'SKIP'} "
                 f"({risk_level}) - {market.get('question', '')[:40]}"
             )
 

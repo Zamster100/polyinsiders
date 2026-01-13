@@ -43,7 +43,7 @@ class AuthenticatedPolymarketAPI:
                 # Generate API credentials
                 api_creds = self.clob_client.create_or_derive_api_creds()
                 self.clob_client.set_api_creds(api_creds)
-                logger.info("✅ Authenticated Polymarket CLOB client initialized")
+                logger.info("Authenticated Polymarket CLOB client initialized")
             except Exception as e:
                 logger.warning(f"Could not initialize authenticated client: {e}")
                 logger.info("Falling back to unauthenticated mode (limited access)")
