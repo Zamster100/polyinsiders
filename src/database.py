@@ -185,6 +185,9 @@ class Database:
     async def save_alert(self, alert: dict):
         """Save an alert to database"""
         async with aiosqlite.connect(self.db_path) as db:
+            # Handle both wallet-based and orderbook alerts
+            is_orderbook_alert = alert.get("alert_type") == "orderbook"
+
             await db.execute(
                 """INSERT INTO alerts
                    (timestamp, wallet, market_title, market_slug, condition_id,
@@ -192,14 +195,14 @@ class Database:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     alert["timestamp"],
-                    alert["wallet"],
+                    alert.get("wallet", "ORDERBOOK"),  # Use placeholder for orderbook alerts
                     alert["market_title"],
                     alert["market_slug"],
                     alert["condition_id"],
-                    json.dumps(alert["trade"]),
+                    json.dumps(alert.get("trade") if not is_orderbook_alert else alert.get("orderbook_details", {})),
                     alert["suspicion_score"],
                     json.dumps(alert["reasons"]),
-                    json.dumps(alert["wallet_stats"]),
+                    json.dumps(alert.get("wallet_stats") if not is_orderbook_alert else {}),
                     str(alert["current_price"]),
                 ),
             )
