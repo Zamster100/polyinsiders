@@ -79,7 +79,7 @@ REASONING: [Your 1-2 sentence analysis]"""
 
             # Call Claude API
             message = self.client.messages.create(
-                model="claude-3-5-haiku-20241022",  # Fast and cost-effective
+                model="claude-3-haiku-20240307",  # Fast and cost-effective
                 max_tokens=200,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}]
