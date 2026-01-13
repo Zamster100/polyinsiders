@@ -8,6 +8,8 @@ from rich.table import Table
 
 from src.alert_system import AlertSystem
 from src.orderbook_anomaly_detector import OrderbookAnomalyDetector
+from src.ai_reviewer import AIReviewer
+from src.wallet_identifier import WalletIdentifier
 from src.config import (
     CONCURRENT_BATCH_SIZE,
     DATABASE_PATH,
@@ -26,12 +28,16 @@ class InsiderTracker:
         self.db = Database(DATABASE_PATH)
         self.wallet_tracker = WalletTracker(self.db)
         self.orderbook_detector = OrderbookAnomalyDetector()
+        self.ai_reviewer = AIReviewer()
         self.alert_system = AlertSystem(self.db)
         self.processed_markets = set()  # Track markets we've already alerted on
+        self.wallet_identifier = None  # Will be set in run_scan
         self.scan_stats = {
             "markets_scanned": 0,
             "orderbooks_analyzed": 0,
             "alerts_triggered": 0,
+            "ai_reviewed": 0,
+            "ai_approved": 0,
             "errors": 0,
         }
 
@@ -110,6 +116,26 @@ class InsiderTracker:
 
                 # Create alert if score is high enough
                 if score >= SUSPICIOUS_SCORE_THRESHOLD:
+                    # AI Review: Let Claude analyze if this warrants investigation
+                    should_alert, ai_reasoning, risk_level = await self.ai_reviewer.review_anomaly(
+                        market, score, reasons, details
+                    )
+
+                    self.scan_stats["ai_reviewed"] += 1
+
+                    if not should_alert:
+                        logger.debug(f"AI filtered out anomaly: {ai_reasoning}")
+                        continue
+
+                    self.scan_stats["ai_approved"] += 1
+
+                    # Identify wallets behind the large orders
+                    wallet_profiles = []
+                    if self.wallet_identifier:
+                        wallet_profiles = await self.wallet_identifier.identify_wallets_from_anomaly(
+                            market, details, lookback_minutes=30
+                        )
+
                     # Create unique key for this market alert to avoid duplicates
                     alert_key = f"{condition_id}_{token_id}"
 
@@ -117,7 +143,10 @@ class InsiderTracker:
                         self.processed_markets.add(alert_key)
 
                         alert = await self.alert_system.create_orderbook_alert(
-                            market, token_id, score, reasons, details
+                            market, token_id, score, reasons, details,
+                            wallet_profiles=wallet_profiles,
+                            ai_reasoning=ai_reasoning,
+                            risk_level=risk_level
                         )
                         self.alert_system.print_alert(alert)
                         alerts_count += 1
@@ -162,9 +191,13 @@ class InsiderTracker:
             "errors": 0,
             "orderbooks_with_data": 0,
             "scores_calculated": 0,
+            "ai_reviewed": 0,
+            "ai_approved": 0,
         }
 
         async with OrderbookAPI() as api:
+            # Initialize wallet identifier with API instance
+            self.wallet_identifier = WalletIdentifier(api)
             markets = await self.get_all_markets(api)
 
             if not markets:
@@ -222,6 +255,12 @@ class InsiderTracker:
         )
         summary_table.add_row(
             "Scores Calculated", f"[magenta]{self.scan_stats['scores_calculated']}[/magenta]"
+        )
+        summary_table.add_row(
+            "AI Reviewed", f"[blue]{self.scan_stats['ai_reviewed']}[/blue]"
+        )
+        summary_table.add_row(
+            "AI Approved", f"[green]{self.scan_stats['ai_approved']}[/green]"
         )
         summary_table.add_row(
             "New Alerts", f"[yellow]{self.scan_stats['alerts_triggered']}[/yellow]"

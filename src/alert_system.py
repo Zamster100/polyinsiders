@@ -71,6 +71,9 @@ class AlertSystem:
         score: float,
         reasons: list[str],
         details: dict,
+        wallet_profiles: list[dict] = None,
+        ai_reasoning: str = "",
+        risk_level: str = "MEDIUM",
     ) -> dict:
         """Create an alert for orderbook anomalies"""
         category = "Politics"  # Since we're tracking tag_id 2
@@ -96,6 +99,9 @@ class AlertSystem:
                 "large_orders": details.get("large_orders", []),
             },
             "current_price": market.get("price", "Unknown"),
+            "wallet_profiles": wallet_profiles or [],
+            "ai_reasoning": ai_reasoning,
+            "risk_level": risk_level,
         }
 
         await self.db.save_alert(alert)

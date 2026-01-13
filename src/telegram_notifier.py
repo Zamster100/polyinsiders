@@ -193,6 +193,29 @@ class TelegramNotifier:
                     side, size, price, value = order
                     message += f"• {side}: {size:,.0f} @ ${price:.2f} = <b>${value:,.2f}</b>\n"
 
+            # Add AI analysis if available
+            ai_reasoning = alert.get('ai_reasoning', '')
+            risk_level = alert.get('risk_level', 'MEDIUM')
+            if ai_reasoning:
+                message += f"\n<b>🤖 AI ANALYSIS ({risk_level} RISK)</b>\n"
+                message += f"{ai_reasoning}\n"
+
+            # Add wallet profiles if available
+            wallet_profiles = alert.get('wallet_profiles', [])
+            if wallet_profiles:
+                message += "\n<b>👤 SUSPECTED INSIDERS</b>\n"
+                for i, profile in enumerate(wallet_profiles[:3], 1):  # Top 3 wallets
+                    wallet = profile['wallet']
+                    wallet_short = f"{wallet[:8]}...{wallet[-6:]}"
+                    total_value = profile.get('total_value', 0)
+                    trade_count = profile.get('trade_count', 0)
+
+                    message += f"\n{i}. <code>{wallet_short}</code>\n"
+                    message += f"   • Total: ${total_value:,.2f} ({trade_count} trades)\n"
+
+                    polygonscan_url = f"https://polygonscan.com/address/{wallet}"
+                    message += f'   • <a href="{polygonscan_url}">View on PolygonScan</a>\n'
+
             # Add detection signals
             message += "\n<b>🚩 DETECTION SIGNALS</b>\n"
             for i, reason in enumerate(alert["reasons"], 1):
