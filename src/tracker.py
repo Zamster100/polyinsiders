@@ -8,6 +8,8 @@ from rich.table import Table
 
 from src.alert_system import AlertSystem
 from src.orderbook_anomaly_detector import OrderbookAnomalyDetector
+from src.ofi_detector import OFIDetector
+from src.changepoint_detector import ChangePointDetector
 from src.ai_reviewer import AIReviewer
 from src.wallet_identifier import WalletIdentifier
 from src.config import (
@@ -28,6 +30,8 @@ class InsiderTracker:
         self.db = Database(DATABASE_PATH)
         self.wallet_tracker = WalletTracker(self.db)
         self.orderbook_detector = OrderbookAnomalyDetector()
+        self.ofi_detector = OFIDetector(window_size=10)
+        self.changepoint_detector = ChangePointDetector(window_size=20, sensitivity=2.0)
         self.ai_reviewer = AIReviewer()
         self.alert_system = AlertSystem(self.db)
         self.processed_markets = set()  # Track markets we've already alerted on
@@ -39,6 +43,8 @@ class InsiderTracker:
             "ai_reviewed": 0,
             "ai_approved": 0,
             "errors": 0,
+            "ofi_signals": 0,
+            "changepoint_signals": 0,
         }
 
     async def initialize(self):
@@ -100,10 +106,57 @@ class InsiderTracker:
 
                 orderbooks_with_data += 1
 
-                # Analyze orderbook for suspicious patterns
+                # Analyze orderbook for suspicious patterns (original detection)
                 score, reasons, details = self.orderbook_detector.analyze_orderbook(
                     orderbook, market
                 )
+
+                # === NEW: Add OFI Detection ===
+                ofi_value, ofi_details = self.ofi_detector.calculate_ofi(orderbook)
+                market_key = f"{condition_id}_{token_id}"
+
+                # Track OFI history
+                self.ofi_detector.add_snapshot(market_key, ofi_value)
+
+                # Detect OFI extremes
+                ofi_score, ofi_reasons = self.ofi_detector.detect_ofi_extremes(ofi_value, ofi_details)
+
+                # Detect OFI persistence
+                ofi_persist_score, ofi_persist_reasons = self.ofi_detector.analyze_ofi_persistence(
+                    market_key, ofi_value
+                )
+
+                # Combine OFI scores
+                total_ofi_score = ofi_score + ofi_persist_score
+                all_ofi_reasons = ofi_reasons + ofi_persist_reasons
+
+                if total_ofi_score > 0:
+                    self.scan_stats["ofi_signals"] += 1
+                    score += total_ofi_score
+                    reasons.extend(all_ofi_reasons)
+                    details['ofi'] = ofi_value
+                    details['ofi_details'] = ofi_details
+
+                # === NEW: Add Change Point Detection ===
+                cp_metrics = {
+                    'total_volume': details.get('total_volume', 0),
+                    'imbalance': details.get('imbalance', 0),
+                    'spread': details.get('spread', 0),
+                    'ofi': ofi_value,
+                }
+
+                cp_score, cp_reasons, cp_details = self.changepoint_detector.analyze_all_changepoints(
+                    market_key, cp_metrics
+                )
+
+                if cp_score > 0:
+                    self.scan_stats["changepoint_signals"] += 1
+                    score += cp_score
+                    reasons.extend(cp_reasons)
+                    details['changepoint_details'] = cp_details
+
+                # Cap final score at 10
+                score = min(score, 10)
 
                 scores.append(score)
 
@@ -111,7 +164,8 @@ class InsiderTracker:
                 if score > 0:
                     logger.debug(
                         f"Market '{market.get('question', '')[:40]}' - "
-                        f"Score: {score:.1f}/10, Reasons: {len(reasons)}"
+                        f"Score: {score:.1f}/10 (Base + OFI: {total_ofi_score:.1f} + CP: {cp_score:.1f}), "
+                        f"Reasons: {len(reasons)}"
                     )
 
                 # Create alert if score is high enough
@@ -176,7 +230,7 @@ class InsiderTracker:
                 f"[white]Large Order Threshold:[/white] [yellow]>${MIN_BET_SIZE * 5} (5x min)[/yellow]\n"
                 f"[white]Very Large Order:[/white] [yellow]>${MIN_BET_SIZE * 10} (10x min)[/yellow]\n"
                 f"[white]Tracking:[/white] [yellow]{len(TRACKED_TAG_IDS)} categories[/yellow]\n"
-                f"[white]Mode:[/white] [green]Orderbook Monitoring[/green]",
+                f"[white]Mode:[/white] [green]Orderbook + OFI + Change Point Detection[/green]",
                 border_style="cyan",
             )
         )
@@ -193,6 +247,8 @@ class InsiderTracker:
             "scores_calculated": 0,
             "ai_reviewed": 0,
             "ai_approved": 0,
+            "ofi_signals": 0,
+            "changepoint_signals": 0,
         }
 
         async with OrderbookAPI() as api:
@@ -255,6 +311,12 @@ class InsiderTracker:
         )
         summary_table.add_row(
             "Scores Calculated", f"[magenta]{self.scan_stats['scores_calculated']}[/magenta]"
+        )
+        summary_table.add_row(
+            "OFI Signals", f"[cyan]{self.scan_stats['ofi_signals']}[/cyan]"
+        )
+        summary_table.add_row(
+            "Change Points", f"[magenta]{self.scan_stats['changepoint_signals']}[/magenta]"
         )
         summary_table.add_row(
             "AI Reviewed", f"[blue]{self.scan_stats['ai_reviewed']}[/blue]"
